@@ -1,0 +1,623 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# API REST – Gestão de Tarefas  |  Trabalho de Avaliação – Web Avançado
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Mapeamento do enunciado → tema do grupo:
+#   Produto  → Tarefa        (campos: Nome, Preco=Custo, Estoque=Qtd. horas)
+#   Categoria → Categoria    (campos: Nome, Descricao)
+#   Cliente  → Responsavel   (campos: Nome, Email, Idade)
+#
+# Requisitos atendidos: ✅ CORS  ✅ Swagger  ✅ Data Annotation
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# ARQUIVO: GestaoTarefasApi.csproj
+# ───────────────────────────────────────────────────────────────────────────
+# <Project Sdk="Microsoft.NET.Sdk.Web">
+#   <PropertyGroup>
+#     <TargetFramework>net8.0</TargetFramework>
+#     <Nullable>enable</Nullable>
+#     <ImplicitUsings>enable</ImplicitUsings>
+#     <RootNamespace>GestaoTarefasApi</RootNamespace>
+#   </PropertyGroup>
+#   <ItemGroup>
+#     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.24" />
+#     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+#     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+#       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+#       <PrivateAssets>all</PrivateAssets>
+#     </PackageReference>
+#     <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="8.0.0" />
+#     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+#   </ItemGroup>
+# </Project>
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# ARQUIVO: appsettings.json
+# ───────────────────────────────────────────────────────────────────────────
+# {
+#   "ConnectionStrings": {
+#     "DefaultConnection": "Server=localhost;Database=gestao_tarefas;User=root;Password=root;"
+#   },
+#   "Logging": { "LogLevel": { "Default": "Information" } },
+#   "AllowedHosts": "*"
+# }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARQUIVO: Program.cs
+# ═══════════════════════════════════════════════════════════════════════════
+
+<<'PROGRAM_CS'
+using Microsoft.EntityFrameworkCore;
+using GestaoTarefasApi.Data;
+
+var builder = WebApplication.CreateBuilder(args);
+
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+
+// ✅ CORS obrigatório
+builder.Services.AddCors(options => {
+    options.AddPolicy("PermitirTudo", policy =>
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod());
+});
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+
+// ✅ Swagger obrigatório
+builder.Services.AddSwaggerGen(c => {
+    c.SwaggerDoc("v1", new() {
+        Title = "API - Gestão de Tarefas",
+        Version = "v1",
+        Description = "API REST para gerenciamento de tarefas, categorias e responsáveis."
+    });
+});
+
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment()) {
+    app.UseSwagger();
+    app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Gestão de Tarefas v1"));
+}
+
+app.UseHttpsRedirection();
+app.UseCors("PermitirTudo");
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();
+PROGRAM_CS
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARQUIVO: Data/AppDbContext.cs
+# ═══════════════════════════════════════════════════════════════════════════
+
+<<'APP_DB_CONTEXT'
+using Microsoft.EntityFrameworkCore;
+using GestaoTarefasApi.Models;
+
+namespace GestaoTarefasApi.Data;
+
+public class AppDbContext : DbContext {
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    public DbSet<Tarefa>      Tarefas      => Set<Tarefa>();
+    public DbSet<Categoria>   Categorias   => Set<Categoria>();
+    public DbSet<Responsavel> Responsaveis => Set<Responsavel>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder) {
+        modelBuilder.Entity<Tarefa>(entity => {
+            entity.Property(t => t.Nome).HasMaxLength(120).IsRequired();
+            entity.Property(t => t.Preco).HasPrecision(18, 2);
+        });
+
+        modelBuilder.Entity<Categoria>(entity => {
+            entity.Property(c => c.Nome).HasMaxLength(80).IsRequired();
+            entity.Property(c => c.Descricao).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<Responsavel>(entity => {
+            entity.Property(r => r.Nome).HasMaxLength(100).IsRequired();
+            entity.Property(r => r.Email).HasMaxLength(200).IsRequired();
+        });
+    }
+}
+APP_DB_CONTEXT
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MODELOS  (pasta Models/)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Models/Tarefa.cs ──────────────────────────────────────────────────────
+<<'MODEL_TAREFA'
+namespace GestaoTarefasApi.Models;
+
+public class Tarefa {
+    public int Id { get; set; }
+    public string Nome { get; set; } = string.Empty;
+    public decimal Preco { get; set; }   // Custo estimado
+    public int Estoque { get; set; }     // Horas disponíveis
+}
+MODEL_TAREFA
+
+# ── Models/Categoria.cs ───────────────────────────────────────────────────
+<<'MODEL_CATEGORIA'
+namespace GestaoTarefasApi.Models;
+
+public class Categoria {
+    public int Id { get; set; }
+    public string Nome { get; set; } = string.Empty;
+    public string? Descricao { get; set; }
+}
+MODEL_CATEGORIA
+
+# ── Models/Responsavel.cs (= Cliente do enunciado) ────────────────────────
+<<'MODEL_RESPONSAVEL'
+namespace GestaoTarefasApi.Models;
+
+public class Responsavel {
+    public int Id { get; set; }
+    public string Nome { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public int Idade { get; set; }
+}
+MODEL_RESPONSAVEL
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DTOs  –  Tarefa  (pasta DTOs/Tarefa/)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── DTOs/Tarefa/TarefaCreateDto.cs ────────────────────────────────────────
+<<'DTO_TAREFA_CREATE'
+using System.ComponentModel.DataAnnotations;
+
+namespace GestaoTarefasApi.DTOs.Tarefa;
+
+// ✅ Data Annotation obrigatório
+public class TarefaCreateDto {
+
+    [Required(ErrorMessage = "Nome é obrigatório.")]
+    [MinLength(3,   ErrorMessage = "Nome deve ter entre 3 e 120 caracteres.")]
+    [MaxLength(120, ErrorMessage = "Nome deve ter entre 3 e 120 caracteres.")]
+    public string Nome { get; set; } = string.Empty;
+
+    [Range(0.01, double.MaxValue, ErrorMessage = "Preço deve ser maior que zero.")]
+    public decimal Preco { get; set; }
+
+    [Range(0, int.MaxValue, ErrorMessage = "Estoque não pode ser negativo.")]
+    public int Estoque { get; set; }
+}
+DTO_TAREFA_CREATE
+
+# ── DTOs/Tarefa/TarefaUpdateDto.cs ────────────────────────────────────────
+<<'DTO_TAREFA_UPDATE'
+using System.ComponentModel.DataAnnotations;
+
+namespace GestaoTarefasApi.DTOs.Tarefa;
+
+public class TarefaUpdateDto {
+
+    [Required]
+    public int Id { get; set; }
+
+    [Required(ErrorMessage = "Nome é obrigatório.")]
+    [MinLength(3,   ErrorMessage = "Nome deve ter entre 3 e 120 caracteres.")]
+    [MaxLength(120, ErrorMessage = "Nome deve ter entre 3 e 120 caracteres.")]
+    public string Nome { get; set; } = string.Empty;
+
+    [Range(0.01, double.MaxValue, ErrorMessage = "Preço deve ser maior que zero.")]
+    public decimal Preco { get; set; }
+
+    [Range(0, int.MaxValue, ErrorMessage = "Estoque não pode ser negativo.")]
+    public int Estoque { get; set; }
+}
+DTO_TAREFA_UPDATE
+
+# ── DTOs/Tarefa/TarefaDto.cs  (response) ─────────────────────────────────
+<<'DTO_TAREFA_RESPONSE'
+namespace GestaoTarefasApi.DTOs.Tarefa;
+
+public class TarefaDto {
+    public int     Id      { get; set; }
+    public string  Nome    { get; set; } = string.Empty;
+    public decimal Preco   { get; set; }
+    public int     Estoque { get; set; }
+}
+DTO_TAREFA_RESPONSE
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DTOs  –  Categoria  (pasta DTOs/Categoria/)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── DTOs/Categoria/CategoriaCreateDto.cs ─────────────────────────────────
+<<'DTO_CAT_CREATE'
+using System.ComponentModel.DataAnnotations;
+
+namespace GestaoTarefasApi.DTOs.Categoria;
+
+public class CategoriaCreateDto {
+
+    [Required(ErrorMessage = "Nome da categoria é obrigatório.")]
+    [MinLength(3,  ErrorMessage = "Nome deve ter entre 3 e 80 caracteres.")]
+    [MaxLength(80, ErrorMessage = "Nome deve ter entre 3 e 80 caracteres.")]
+    public string Nome { get; set; } = string.Empty;
+
+    [MaxLength(200, ErrorMessage = "Descrição deve ter no máximo 200 caracteres.")]
+    public string? Descricao { get; set; }
+}
+DTO_CAT_CREATE
+
+# ── DTOs/Categoria/CategoriaUpdateDto.cs ─────────────────────────────────
+<<'DTO_CAT_UPDATE'
+using System.ComponentModel.DataAnnotations;
+
+namespace GestaoTarefasApi.DTOs.Categoria;
+
+public class CategoriaUpdateDto {
+
+    [Required]
+    public int Id { get; set; }
+
+    [Required(ErrorMessage = "Nome da categoria é obrigatório.")]
+    [MinLength(3,  ErrorMessage = "Nome deve ter entre 3 e 80 caracteres.")]
+    [MaxLength(80, ErrorMessage = "Nome deve ter entre 3 e 80 caracteres.")]
+    public string Nome { get; set; } = string.Empty;
+
+    [MaxLength(200, ErrorMessage = "Descrição deve ter no máximo 200 caracteres.")]
+    public string? Descricao { get; set; }
+}
+DTO_CAT_UPDATE
+
+# ── DTOs/Categoria/CategoriaDto.cs  (response) ───────────────────────────
+<<'DTO_CAT_RESPONSE'
+namespace GestaoTarefasApi.DTOs.Categoria;
+
+public class CategoriaDto {
+    public int     Id       { get; set; }
+    public string  Nome     { get; set; } = string.Empty;
+    public string? Descricao { get; set; }
+}
+DTO_CAT_RESPONSE
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DTOs  –  Responsavel  (pasta DTOs/Responsavel/)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── DTOs/Responsavel/ResponsavelCreateDto.cs ─────────────────────────────
+<<'DTO_RESP_CREATE'
+using System.ComponentModel.DataAnnotations;
+
+namespace GestaoTarefasApi.DTOs.Responsavel;
+
+public class ResponsavelCreateDto {
+
+    [Required(ErrorMessage = "Nome é obrigatório.")]
+    [MinLength(3,   ErrorMessage = "Nome deve ter entre 3 e 100 caracteres.")]
+    [MaxLength(100, ErrorMessage = "Nome deve ter entre 3 e 100 caracteres.")]
+    public string Nome { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Email é obrigatório.")]
+    [EmailAddress(ErrorMessage = "Email em formato inválido.")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Idade é obrigatória.")]
+    [Range(18, int.MaxValue, ErrorMessage = "Idade mínima é 18 anos.")]
+    public int Idade { get; set; }
+}
+DTO_RESP_CREATE
+
+# ── DTOs/Responsavel/ResponsavelUpdateDto.cs ─────────────────────────────
+<<'DTO_RESP_UPDATE'
+using System.ComponentModel.DataAnnotations;
+
+namespace GestaoTarefasApi.DTOs.Responsavel;
+
+public class ResponsavelUpdateDto {
+
+    [Required]
+    public int Id { get; set; }
+
+    [Required(ErrorMessage = "Nome é obrigatório.")]
+    [MinLength(3,   ErrorMessage = "Nome deve ter entre 3 e 100 caracteres.")]
+    [MaxLength(100, ErrorMessage = "Nome deve ter entre 3 e 100 caracteres.")]
+    public string Nome { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Email é obrigatório.")]
+    [EmailAddress(ErrorMessage = "Email em formato inválido.")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Idade é obrigatória.")]
+    [Range(18, int.MaxValue, ErrorMessage = "Idade mínima é 18 anos.")]
+    public int Idade { get; set; }
+}
+DTO_RESP_UPDATE
+
+# ── DTOs/Responsavel/ResponsavelDto.cs  (response) ───────────────────────
+<<'DTO_RESP_RESPONSE'
+namespace GestaoTarefasApi.DTOs.Responsavel;
+
+public class ResponsavelDto {
+    public int    Id    { get; set; }
+    public string Nome  { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public int    Idade { get; set; }
+}
+DTO_RESP_RESPONSE
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CONTROLLERS  (pasta Controllers/)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Controllers/TarefasController.cs ─────────────────────────────────────
+<<'CTRL_TAREFA'
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using GestaoTarefasApi.Data;
+using GestaoTarefasApi.Models;
+using GestaoTarefasApi.DTOs.Tarefa;
+
+namespace GestaoTarefasApi.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class TarefasController : ControllerBase {
+    private readonly AppDbContext _context;
+
+    public TarefasController(AppDbContext context) {
+        _context = context;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<TarefaDto>>> GetAllAsync() {
+        var tarefas = await _context.Tarefas.AsNoTracking().ToListAsync();
+        var result = tarefas.Select(t => new TarefaDto {
+            Id = t.Id, Nome = t.Nome, Preco = t.Preco, Estoque = t.Estoque
+        });
+        return Ok(result);
+    }
+
+    [HttpGet("{id:int}", Name = "GetTarefaById")]
+    public async Task<ActionResult<TarefaDto>> GetByIdAsync(int id) {
+        var tarefa = await _context.Tarefas.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id);
+        if (tarefa is null) return NotFound();
+        return Ok(new TarefaDto { Id = tarefa.Id, Nome = tarefa.Nome, Preco = tarefa.Preco, Estoque = tarefa.Estoque });
+    }
+
+    // POST → 201 Created
+    [HttpPost]
+    public async Task<ActionResult<TarefaDto>> CreateAsync(TarefaCreateDto dto) {
+        var tarefa = new Tarefa { Nome = dto.Nome, Preco = dto.Preco, Estoque = dto.Estoque };
+        _context.Tarefas.Add(tarefa);
+        await _context.SaveChangesAsync();
+        return CreatedAtRoute("GetTarefaById", new { id = tarefa.Id }, new { id = tarefa.Id });
+    }
+
+    // PUT → 204 No Content
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateAsync(int id, TarefaUpdateDto dto) {
+        if (id != dto.Id) return BadRequest("Id da URL não confere com o Id do corpo.");
+        var tarefa = await _context.Tarefas.FindAsync(id);
+        if (tarefa is null) return NotFound();
+        tarefa.Nome = dto.Nome; tarefa.Preco = dto.Preco; tarefa.Estoque = dto.Estoque;
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE → 204 No Content
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteAsync(int id) {
+        var tarefa = await _context.Tarefas.FindAsync(id);
+        if (tarefa is null) return NotFound();
+        _context.Tarefas.Remove(tarefa);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+}
+CTRL_TAREFA
+
+# ── Controllers/CategoriasController.cs ──────────────────────────────────
+<<'CTRL_CATEGORIA'
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using GestaoTarefasApi.Data;
+using GestaoTarefasApi.Models;
+using GestaoTarefasApi.DTOs.Categoria;
+
+namespace GestaoTarefasApi.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class CategoriasController : ControllerBase {
+    private readonly AppDbContext _context;
+
+    public CategoriasController(AppDbContext context) {
+        _context = context;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<CategoriaDto>>> GetAllAsync() {
+        var categorias = await _context.Categorias.AsNoTracking().ToListAsync();
+        var result = categorias.Select(c => new CategoriaDto { Id = c.Id, Nome = c.Nome, Descricao = c.Descricao });
+        return Ok(result);
+    }
+
+    [HttpGet("{id:int}", Name = "GetCategoriaById")]
+    public async Task<ActionResult<CategoriaDto>> GetByIdAsync(int id) {
+        var c = await _context.Categorias.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+        if (c is null) return NotFound();
+        return Ok(new CategoriaDto { Id = c.Id, Nome = c.Nome, Descricao = c.Descricao });
+    }
+
+    // POST → 201 Created
+    [HttpPost]
+    public async Task<ActionResult<CategoriaDto>> CreateAsync(CategoriaCreateDto dto) {
+        var categoria = new Categoria { Nome = dto.Nome, Descricao = dto.Descricao };
+        _context.Categorias.Add(categoria);
+        await _context.SaveChangesAsync();
+        return CreatedAtRoute("GetCategoriaById", new { id = categoria.Id }, new { id = categoria.Id });
+    }
+
+    // PUT → 204 No Content
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateAsync(int id, CategoriaUpdateDto dto) {
+        if (id != dto.Id) return BadRequest("Id da URL não confere com o Id do corpo.");
+        var categoria = await _context.Categorias.FindAsync(id);
+        if (categoria is null) return NotFound();
+        categoria.Nome = dto.Nome; categoria.Descricao = dto.Descricao;
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE → 204 No Content
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteAsync(int id) {
+        var categoria = await _context.Categorias.FindAsync(id);
+        if (categoria is null) return NotFound();
+        _context.Categorias.Remove(categoria);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+}
+CTRL_CATEGORIA
+
+# ── Controllers/ResponsaveisController.cs ────────────────────────────────
+<<'CTRL_RESPONSAVEL'
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using GestaoTarefasApi.Data;
+using GestaoTarefasApi.Models;
+using GestaoTarefasApi.DTOs.Responsavel;
+
+namespace GestaoTarefasApi.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class ResponsaveisController : ControllerBase {
+    private readonly AppDbContext _context;
+
+    public ResponsaveisController(AppDbContext context) {
+        _context = context;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<ResponsavelDto>>> GetAllAsync() {
+        var responsaveis = await _context.Responsaveis.AsNoTracking().ToListAsync();
+        var result = responsaveis.Select(r => new ResponsavelDto {
+            Id = r.Id, Nome = r.Nome, Email = r.Email, Idade = r.Idade
+        });
+        return Ok(result);
+    }
+
+    [HttpGet("{id:int}", Name = "GetResponsavelById")]
+    public async Task<ActionResult<ResponsavelDto>> GetByIdAsync(int id) {
+        var r = await _context.Responsaveis.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id);
+        if (r is null) return NotFound();
+        return Ok(new ResponsavelDto { Id = r.Id, Nome = r.Nome, Email = r.Email, Idade = r.Idade });
+    }
+
+    // POST → 201 Created
+    [HttpPost]
+    public async Task<ActionResult<ResponsavelDto>> CreateAsync(ResponsavelCreateDto dto) {
+        var responsavel = new Responsavel { Nome = dto.Nome, Email = dto.Email, Idade = dto.Idade };
+        _context.Responsaveis.Add(responsavel);
+        await _context.SaveChangesAsync();
+        return CreatedAtRoute("GetResponsavelById", new { id = responsavel.Id }, new { id = responsavel.Id });
+    }
+
+    // PUT → 204 No Content
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> UpdateAsync(int id, ResponsavelUpdateDto dto) {
+        if (id != dto.Id) return BadRequest("Id da URL não confere com o Id do corpo.");
+        var responsavel = await _context.Responsaveis.FindAsync(id);
+        if (responsavel is null) return NotFound();
+        responsavel.Nome = dto.Nome; responsavel.Email = dto.Email; responsavel.Idade = dto.Idade;
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE → 204 No Content
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> DeleteAsync(int id) {
+        var responsavel = await _context.Responsaveis.FindAsync(id);
+        if (responsavel is null) return NotFound();
+        _context.Responsaveis.Remove(responsavel);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+}
+CTRL_RESPONSAVEL
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMO RODAR O PROJETO
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# 1. Criar o banco:
+#    CREATE DATABASE gestao_tarefas;
+#
+# 2. Ajustar a connection string em appsettings.json com seu user/password.
+#
+# 3. No terminal, dentro da pasta do projeto:
+#    dotnet ef migrations add Inicial
+#    dotnet ef database update
+#    dotnet run
+#
+# 4. Acessar o Swagger:
+#    https://localhost:5001/swagger   (ou a porta exibida no terminal)
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# JSONs DE TESTE (copiar direto no Swagger)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# ── TAREFA ──────────────────────────────────────────────────────────────
+# POST  →  201 Created
+# {"nome":"Desenvolver Login","preco":199.90,"estoque":10}
+#
+# PUT   →  204 No Content
+# {"id":1,"nome":"Revisar Documentação","preco":149.90,"estoque":25}
+#
+# ── CATEGORIA ────────────────────────────────────────────────────────────
+# POST  →  201 Created
+# {"nome":"Backend","descricao":"Tarefas de desenvolvimento server-side"}
+#
+# PUT   →  204 No Content
+# {"id":2,"nome":"Frontend","descricao":"Tarefas de interface do usuário"}
+#
+# ── RESPONSAVEL ──────────────────────────────────────────────────────────
+# POST  →  201 Created
+# {"nome":"João Silva","email":"joao.silva@email.com","idade":30}
+#
+# PUT   →  204 No Content
+# {"id":3,"nome":"Ana Maria Oliveira","email":"ana.oliveira@email.com","idade":28}
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# JSONs COM ERRO  →  todos retornam 400 Bad Request
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# TAREFA
+# {"nome":"A","preco":100,"estoque":5}          → "Nome deve ter entre 3 e 120 caracteres."
+# {"nome":"Tarefa Teste","preco":0,"estoque":5}  → "Preço deve ser maior que zero."
+# {"nome":"Tarefa Teste","preco":50,"estoque":-3}→ "Estoque não pode ser negativo."
+#
+# CATEGORIA
+# {"descricao":"Sem nome"}                       → "Nome da categoria é obrigatório."
+# {"nome":"Dev","descricao":"<201+ chars>"}       → "Descrição deve ter no máximo 200 caracteres."
+#
+# RESPONSAVEL
+# {"nome":"Pedro","email":"pedro@email.com","idade":15}     → "Idade mínima é 18 anos."
+# {"nome":"Maria","email":"maria-souza-gmail.com","idade":22}→ "Email em formato inválido."
+# {"email":"email@valido.com","idade":30}                   → "Nome é obrigatório."
